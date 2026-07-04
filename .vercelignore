@@ -1,0 +1,7 @@
+backend/
+agent/
+agent-node/
+docker-compose.yml
+render.yaml
+*.md
+!README.md

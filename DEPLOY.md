@@ -103,20 +103,24 @@ In LiveKit Cloud dashboard → **Agents**, confirm `medivoice-agent` is register
 
 ## 5. Frontend (Vercel)
 
+**Option A — Root Directory: `frontend` (recommended)**
+
 1. Import GitHub repo at [vercel.com](https://vercel.com)
-2. **Root directory:** `frontend`
-3. Framework preset: **Vite** (auto-detected)
-4. Environment variables:
+2. **Root Directory:** `frontend`
+3. Framework: **Vite**
+4. Environment variable:
 
 | Variable | Value |
 |----------|-------|
-| `VITE_API_URL` | `https://medivoice-backend.onrender.com` (your backend URL, no trailing slash) |
+| `VITE_API_URL` | `https://your-backend.onrender.com` (no trailing slash) |
 
 5. Deploy
 
-`frontend/vercel.json` handles:
-- `/admin` → admin dashboard entry
-- `noindex` on admin page
+**Option B — Root Directory: empty (repo root)**
+
+Root `vercel.json` builds **only the frontend** — it does not run the backend `tsc` build.
+
+Same `VITE_API_URL` env var required.
 
 ### CORS
 
