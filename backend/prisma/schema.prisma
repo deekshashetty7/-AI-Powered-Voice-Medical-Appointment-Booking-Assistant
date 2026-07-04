@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Clinic {
+  id        String   @id @default(cuid())
+  name      String
+  address   String
+  phone     String
+  openTime  String   @map("open_time")
+  closeTime String   @map("close_time")
+  timezone  String   @default("Asia/Kolkata")
+  createdAt DateTime @default(now()) @map("created_at")
+  doctors   Doctor[]
+
+  @@map("clinics")
+}
+
+model Specialty {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  nameHi      String?  @map("name_hi")
+  nameKn      String?  @map("name_kn")
+  description String?
+  doctors     Doctor[]
+
+  @@map("specialties")
+}
+
+model Doctor {
+  id           String        @id @default(cuid())
+  name         String
+  nameHi       String?       @map("name_hi")
+  nameKn       String?       @map("name_kn")
+  email        String?
+  phone        String?
+  bio          String?
+  clinicId     String        @map("clinic_id")
+  specialtyId  String        @map("specialty_id")
+  clinic       Clinic        @relation(fields: [clinicId], references: [id])
+  specialty    Specialty     @relation(fields: [specialtyId], references: [id])
+  schedules    Schedule[]
+  appointments Appointment[]
+
+  @@map("doctors")
+}
+
+model Schedule {
+  id        String   @id @default(cuid())
+  doctorId  String   @map("doctor_id")
+  dayOfWeek Int      @map("day_of_week")
+  startTime String   @map("start_time")
+  endTime   String   @map("end_time")
+  slotMins  Int      @default(30) @map("slot_mins")
+  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, dayOfWeek])
+  @@map("schedules")
+}
+
+model Appointment {
+  id              String   @id @default(cuid())
+  doctorId        String   @map("doctor_id")
+  patientName     String   @map("patient_name")
+  patientPhone    String   @map("patient_phone")
+  patientEmail    String?  @map("patient_email")
+  appointmentDate DateTime @map("appointment_date")
+  startTime       String   @map("start_time")
+  endTime         String   @map("end_time")
+  status          String   @default("confirmed")
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  doctor          Doctor   @relation(fields: [doctorId], references: [id])
+
+  @@unique([doctorId, appointmentDate, startTime])
+  @@map("appointments")
+}
+
+enum Role {
+  PATIENT
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  phone        String?
+  role         Role     @default(PATIENT)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
