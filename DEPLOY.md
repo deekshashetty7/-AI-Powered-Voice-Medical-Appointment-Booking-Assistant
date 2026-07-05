@@ -54,6 +54,13 @@ cd backend && npm run db:seed
 
 5. Note your backend URL, e.g. `https://medivoice-backend.onrender.com`
 
+If you deploy the backend manually in the Render dashboard instead of using the blueprint:
+
+- **Root Directory:** `backend`
+- **Build Command:** `NPM_CONFIG_PRODUCTION=false npm ci && npm run db:generate && npm run build`
+- **Start Command:** `npm run db:push && npm start`
+- **Health Check Path:** `/health`
+
 ### Railway
 
 1. New project → **Deploy from GitHub** → select `backend/` as root

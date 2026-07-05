@@ -7,8 +7,8 @@ services:
     runtime: node
     rootDir: backend
     plan: starter
-    buildCommand: npm ci && npx prisma generate && npm run build
-    startCommand: npx prisma db push && npm start
+    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci && npm run db:generate && npm run build
+    startCommand: npm run db:push && npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -32,7 +32,7 @@ services:
     name: medivoice-agent
     runtime: docker
     rootDir: agent-node
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: Dockerfile
     plan: starter
     envVars:
       - key: LIVEKIT_URL

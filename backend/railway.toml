@@ -1,6 +1,6 @@
 [build]
 builder = "nixpacks"
-buildCommand = "npm ci && npx prisma generate && npm run build"
+buildCommand = "NPM_CONFIG_PRODUCTION=false npm ci && npm run db:generate && npm run build"
 
 [deploy]
 startCommand = "npx prisma db push && npm start"
