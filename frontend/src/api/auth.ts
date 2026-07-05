@@ -1,3 +1,5 @@
+import { apiUrl, apiConfigHint, getApiBase } from './base';
+
 export type UserRole = 'PATIENT' | 'ADMIN';
 
 export interface AuthUser {
@@ -13,20 +15,30 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
 export const AUTH_TOKEN_KEY = 'medivoice_auth_token';
 
 async function authFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
+  const url = apiUrl(path);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+  } catch {
+    throw new Error(`Cannot reach backend at ${url || '(same origin)'}. ${apiConfigHint()}`);
+  }
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error(
+        `API not found (404) at ${url}. ${apiConfigHint()}`
+      );
+    }
     throw new Error(data.error || `Request failed (${res.status})`);
   }
   return data as T;
@@ -70,7 +82,6 @@ export async function fetchAdminStats(token: string) {
 export function getStoredToken(): string | null {
   const token = localStorage.getItem(AUTH_TOKEN_KEY);
   if (token) return token;
-  // Migrate legacy keys
   const legacy = localStorage.getItem('medivoice_patient_token')
     || localStorage.getItem('medivoice_admin_token');
   if (legacy) {
@@ -95,3 +106,5 @@ export function clearToken() {
 export function postLoginScreen(role: UserRole): 'admin' | 'language' {
   return role === 'ADMIN' ? 'admin' : 'language';
 }
+
+export { getApiBase };

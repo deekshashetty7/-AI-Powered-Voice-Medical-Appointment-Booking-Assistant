@@ -1,3 +1,5 @@
+import { apiUrl, apiConfigHint } from './api/base';
+
 export type Language = 'en' | 'hi' | 'kn';
 export type SttProvider = 'deepgram' | 'sarvam' | 'elevenlabs';
 
@@ -27,10 +29,8 @@ export const STT_PROVIDERS: { value: SttProvider; label: string; description: st
   { value: 'elevenlabs', label: 'ElevenLabs', description: 'High accuracy STT' },
 ];
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
-
 export async function getLiveKitToken(config: SessionConfig): Promise<TokenResponse> {
-  const url = `${API_BASE}/api/livekit/token`;
+  const url = apiUrl('/api/livekit/token');
   let res: Response;
   try {
     res = await fetch(url, {
@@ -39,9 +39,7 @@ export async function getLiveKitToken(config: SessionConfig): Promise<TokenRespo
       body: JSON.stringify(config),
     });
   } catch {
-    throw new Error(
-      'Cannot reach backend. Start it with: cd backend && npm run dev'
-    );
+    throw new Error(`Cannot reach backend. ${apiConfigHint()}`);
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

@@ -1,4 +1,4 @@
-const API = import.meta.env.VITE_API_URL || '';
+import { apiUrl } from './base';
 
 export interface Doctor {
   id: string;
@@ -40,26 +40,28 @@ export interface Appointment {
 }
 
 export async function fetchDoctors(specialty?: string): Promise<Doctor[]> {
-  const url = specialty ? `${API}/api/doctors?specialty=${encodeURIComponent(specialty)}` : `${API}/api/doctors`;
+  const url = specialty
+    ? apiUrl(`/api/doctors?specialty=${encodeURIComponent(specialty)}`)
+    : apiUrl('/api/doctors');
   const res = await fetch(url);
   if (!res.ok) return [];
   return res.json();
 }
 
 export async function fetchSpecialties(): Promise<Specialty[]> {
-  const res = await fetch(`${API}/api/specialties`);
+  const res = await fetch(apiUrl('/api/specialties'));
   if (!res.ok) return [];
   return res.json();
 }
 
 export async function fetchClinic(): Promise<Clinic | null> {
-  const res = await fetch(`${API}/api/clinic`);
+  const res = await fetch(apiUrl('/api/clinic'));
   if (!res.ok) return null;
   return res.json();
 }
 
 export async function fetchAppointments(phone: string): Promise<Appointment[]> {
-  const res = await fetch(`${API}/api/appointments?phone=${encodeURIComponent(phone)}`);
+  const res = await fetch(apiUrl(`/api/appointments?phone=${encodeURIComponent(phone)}`));
   if (!res.ok) return [];
   return res.json();
 }
