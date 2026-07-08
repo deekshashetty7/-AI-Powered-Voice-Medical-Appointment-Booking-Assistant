@@ -30,7 +30,7 @@ function ActionIcon({ type }: { type: string }) {
 
 export function HomeScreen() {
   const {
-    language, patientPhone, setPatientPhone, startVoice, voiceLoading, voiceError,
+    language, patientPhone, setPatientPhone, startVoice, voiceLoading, voiceError, voiceEndMessage,
     setScreen, user, logout,
   } = useApp();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
@@ -95,7 +95,21 @@ export function HomeScreen() {
           </p>
         </div>
 
-        {voiceError && <div className="alert alert--error" role="alert" style={{ marginBottom: '1rem' }}>{voiceError}</div>}
+        {voiceError && (
+          <div
+            className="alert alert--error"
+            role="alert"
+            style={{ marginBottom: '1rem', whiteSpace: 'pre-line' }}
+          >
+            {voiceError}
+          </div>
+        )}
+
+        {voiceEndMessage && !voiceError && (
+          <div className="alert alert--warning" role="status" style={{ marginBottom: '1rem' }}>
+            {voiceEndMessage}
+          </div>
+        )}
 
         <section aria-label="Quick actions">
           <h2 className="text-overline" style={{ marginBottom: '0.75rem', color: 'var(--text-muted)' }}>Quick actions</h2>

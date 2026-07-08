@@ -20,15 +20,25 @@ router.post('/token', async (req: Request, res: Response) => {
       language = 'en',
       sttProvider = 'deepgram',
       patientName,
+      patientPhone,
+      intent,
     } = req.body as {
       language?: string;
       sttProvider?: string;
       patientName?: string;
+      patientPhone?: string;
+      intent?: string;
     };
 
     const roomName = `appointment-${randomBytes(8).toString('hex')}`;
     const participantName = patientName || `patient-${randomBytes(4).toString('hex')}`;
-    const metadata = JSON.stringify({ language, sttProvider, patientName: participantName });
+    const metadata = JSON.stringify({
+      language,
+      sttProvider,
+      patientName: participantName,
+      patientPhone: patientPhone || '',
+      intent: intent || '',
+    });
 
     const httpUrl = livekitUrl.replace('wss://', 'https://').replace('ws://', 'http://');
     const roomService = new RoomServiceClient(httpUrl, apiKey, apiSecret);
@@ -40,9 +50,11 @@ router.post('/token', async (req: Request, res: Response) => {
       metadata,
     });
 
+    let agentDispatched = false;
     try {
       const dispatchClient = new AgentDispatchClient(httpUrl, apiKey, apiSecret);
       await dispatchClient.createDispatch(roomName, 'medivoice-agent', { metadata });
+      agentDispatched = true;
     } catch (dispatchErr) {
       console.warn('Agent dispatch failed (is agent running?):', dispatchErr);
     }
@@ -68,6 +80,7 @@ router.post('/token', async (req: Request, res: Response) => {
       livekitUrl,
       language,
       sttProvider,
+      agentDispatched,
     });
   } catch (err) {
     console.error('LiveKit token error:', err);

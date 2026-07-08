@@ -7,6 +7,8 @@ export interface SessionConfig {
   language: Language;
   sttProvider: SttProvider;
   patientName: string;
+  patientPhone?: string;
+  intent?: string;
 }
 
 export interface TokenResponse {
@@ -15,6 +17,7 @@ export interface TokenResponse {
   livekitUrl: string;
   language: Language;
   sttProvider: SttProvider;
+  agentDispatched?: boolean;
 }
 
 export const LANGUAGES: { value: Language; label: string; native: string }[] = [

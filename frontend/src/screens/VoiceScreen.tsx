@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -6,31 +6,187 @@ import {
   useVoiceAssistant,
   BarVisualizer,
   useLocalParticipant,
+  useRoomContext,
+  useTracks,
 } from '@livekit/components-react';
-import { useKrispNoiseFilter } from '@livekit/components-react/krisp';
+import { MediaDeviceFailure, Track } from 'livekit-client';
 import '@livekit/components-styles';
 import { useApp } from '../context/AppContext';
 import { LANGUAGES } from '../types';
+import { microphoneBlockedHint } from '../lib/microphone';
 import { VoiceTechBar } from '../components/VoiceTechBar';
 import './screens.css';
 import './voice-screen.css';
 
-function VoicePanel({ onEnd, intentionalEnd }: {
-  onEnd: (error?: string) => void;
-  intentionalEnd: React.MutableRefObject<boolean>;
+function PublishMicrophone({
+  stream,
+  onMicError,
+}: {
+  stream: MediaStream;
+  onMicError: (message: string) => void;
 }) {
+  const room = useRoomContext();
+  const connectionState = useConnectionState();
+  const { isMicrophoneEnabled } = useLocalParticipant();
+  const [published, setPublished] = useState(false);
+  const publishedRef = useRef(false);
+
+  const micTracks = useTracks([Track.Source.Microphone], { onlySubscribed: false });
+  const localMicTrack = micTracks.find((track) => track.participant.isLocal);
+
+  useEffect(() => {
+    if (connectionState !== 'connected' || publishedRef.current) return;
+
+    const audioTrack = stream.getAudioTracks()[0];
+    if (!audioTrack) {
+      onMicError('No audio track available from microphone.');
+      return;
+    }
+
+    let cancelled = false;
+
+    const publishMic = async (attempt = 0) => {
+      try {
+        await room.localParticipant.publishTrack(audioTrack, {
+          source: Track.Source.Microphone,
+          name: 'microphone',
+        });
+        if (!cancelled) {
+          publishedRef.current = true;
+          setPublished(true);
+        }
+      } catch (err) {
+        if (cancelled) return;
+
+        if (attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          return publishMic(attempt + 1);
+        }
+
+        // Production fallback: let LiveKit open the mic directly
+        try {
+          stream.getTracks().forEach((track) => track.stop());
+          await room.localParticipant.setMicrophoneEnabled(true);
+          if (!cancelled) {
+            publishedRef.current = true;
+            setPublished(true);
+          }
+        } catch (fallbackErr) {
+          onMicError(
+            fallbackErr instanceof Error
+              ? `${fallbackErr.message} ${microphoneBlockedHint()}`
+              : `Failed to publish microphone. ${microphoneBlockedHint()}`,
+          );
+        }
+      }
+    };
+
+    void publishMic();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connectionState, room, stream, onMicError]);
+
+  const micActive = published && isMicrophoneEnabled && (Boolean(localMicTrack) || published);
+
+  return (
+    <div className="voice-mic-section-inline">
+      <span
+        className={`voice-mic-badge ${micActive ? 'voice-mic-badge--on' : 'voice-mic-badge--off'}`}
+        role="status"
+        aria-live="polite"
+      >
+        <span className="voice-mic-badge__dot" />
+        {micActive
+          ? 'Recording your voice'
+          : connectionState === 'connected'
+            ? 'Starting microphone…'
+            : 'Connecting…'}
+      </span>
+
+      {localMicTrack && (
+        <div className="voice-waveform voice-waveform--local" aria-hidden="true">
+          <BarVisualizer
+            state={micActive ? 'listening' : undefined}
+            barCount={5}
+            trackRef={localMicTrack}
+            options={{ minHeight: 6, maxHeight: 24 }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgentAudioPlayback() {
+  const room = useRoomContext();
+  const connectionState = useConnectionState();
+  const [needsTap, setNeedsTap] = useState(false);
+
+  useEffect(() => {
+    if (connectionState !== 'connected') return;
+
+    const tryStartAudio = async () => {
+      try {
+        await room.startAudio();
+        setNeedsTap(false);
+      } catch {
+        setNeedsTap(true);
+      }
+    };
+
+    void tryStartAudio();
+  }, [connectionState, room]);
+
+  if (!needsTap) return null;
+
+  return (
+    <button
+      type="button"
+      className="btn btn--primary btn--block"
+      onClick={() => {
+        void room.startAudio().then(() => setNeedsTap(false)).catch(() => undefined);
+      }}
+    >
+      Tap to hear the assistant
+    </button>
+  );
+}
+
+function VoicePanel({
+  micStream,
+  onEnd,
+  intentionalEnd,
+  agentDispatched,
+}: {
+  micStream: MediaStream;
+  onEnd: () => void;
+  intentionalEnd: React.MutableRefObject<boolean>;
+  agentDispatched?: boolean;
+}) {
+  const room = useRoomContext();
   const connectionState = useConnectionState();
   const { state: agentState, audioTrack, agentTranscriptions } = useVoiceAssistant();
-  const { localParticipant } = useLocalParticipant();
-  const { setNoiseFilterEnabled, isNoiseFilterEnabled } = useKrispNoiseFilter();
+  const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
   const [caption, setCaption] = useState('');
   const [bargeFlash, setBargeFlash] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
+  const [agentWarning, setAgentWarning] = useState<string | null>(() => {
+    if (agentDispatched === false) {
+      return 'Voice assistant is offline. Deploy medivoice-agent on Render (worker service) with LiveKit, Groq, and Deepgram keys.';
+    }
+    if (agentDispatched === undefined) {
+      return 'Production backend may be outdated. Redeploy backend on Render so the voice agent can join.';
+    }
+    return null;
+  });
 
-  useEffect(() => {
-    setNoiseFilterEnabled(true).catch(() => undefined);
-  }, [setNoiseFilterEnabled]);
+  const handleMicError = useCallback((message: string) => {
+    setMicError(message);
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => setDuration((d) => d + 1), 1000);
@@ -50,23 +206,59 @@ function VoicePanel({ onEnd, intentionalEnd }: {
     return () => clearTimeout(t);
   }, [agentState, caption]);
 
+  useEffect(() => {
+    if (agentDispatched === false || agentDispatched === undefined) return;
+    if (connectionState !== 'connected') return;
+
+    const timer = setTimeout(() => {
+      if (agentState === 'disconnected' || agentState === 'connecting') {
+        setAgentWarning(
+          'AI assistant did not join. Ensure the medivoice-agent worker is running on Render with LiveKit and Groq keys.',
+        );
+      }
+    }, 15000);
+
+    return () => clearTimeout(timer);
+  }, [agentDispatched, connectionState, agentState]);
+
+  useEffect(() => {
+    if (agentState === 'listening' || agentState === 'speaking' || agentState === 'thinking') {
+      setAgentWarning(null);
+    }
+  }, [agentState]);
+
   const formatDuration = (s: number) =>
     `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
   const statusLabel = () => {
+    if (micError) return 'Microphone error';
     if (connectionState === 'connecting') return 'Connecting';
+    if (!isMicrophoneEnabled) return 'Microphone muted';
     if (agentState === 'listening') return 'Listening';
     if (agentState === 'thinking') return 'Processing';
     if (agentState === 'speaking') return 'Speaking';
     return 'Connected';
   };
 
-  const statusClass = agentState || (connectionState === 'connecting' ? 'connecting' : 'idle');
-  const connectionQuality = connectionState === 'connected' ? 'Excellent' : connectionState === 'connecting' ? 'Connecting…' : 'Poor';
+  const statusClass = micError
+    ? 'error'
+    : agentState || (connectionState === 'connecting' ? 'connecting' : 'idle');
+  const connectionQuality =
+    connectionState === 'connected' ? 'Excellent' : connectionState === 'connecting' ? 'Connecting…' : 'Poor';
 
   const toggleMute = async () => {
-    await localParticipant.setMicrophoneEnabled(muted);
-    setMuted(!muted);
+    const nextMuted = !muted;
+    await localParticipant.setMicrophoneEnabled(!nextMuted);
+    setMuted(nextMuted);
+  };
+
+  const handleEnd = async () => {
+    intentionalEnd.current = true;
+    try {
+      await room.disconnect();
+    } catch {
+      onEnd();
+    }
   };
 
   return (
@@ -77,6 +269,22 @@ function VoicePanel({ onEnd, intentionalEnd }: {
           {connectionQuality}
         </span>
       </div>
+
+      <PublishMicrophone stream={micStream} onMicError={handleMicError} />
+
+      {micError && (
+        <div className="alert alert--error" role="alert">
+          {micError}
+        </div>
+      )}
+
+      {agentWarning && !micError && (
+        <div className="alert alert--warning" role="status">
+          {agentWarning}
+        </div>
+      )}
+
+      <AgentAudioPlayback />
 
       <div className={`voice-avatar voice-avatar--${statusClass}`}>
         <div className="voice-avatar__inner">
@@ -100,10 +308,17 @@ function VoicePanel({ onEnd, intentionalEnd }: {
         {statusLabel()}
       </div>
 
-      <VoiceTechBar agentState={agentState} noiseFilterOn={isNoiseFilterEnabled} />
+      <VoiceTechBar agentState={agentState} noiseFilterOn={false} />
 
       <div className="voice-caption" aria-live="polite" aria-atomic="true">
-        {caption || (agentState === 'listening' ? 'Speak now…' : agentState === 'speaking' ? 'Assistant is speaking…' : 'Starting conversation…')}
+        {caption ||
+          (micError
+            ? 'Fix microphone access, then end and try again.'
+            : agentState === 'listening'
+              ? 'Speak now…'
+              : agentState === 'speaking'
+                ? 'Assistant is speaking…'
+                : 'Starting conversation…')}
       </div>
 
       {agentState === 'speaking' && (
@@ -132,7 +347,7 @@ function VoicePanel({ onEnd, intentionalEnd }: {
         <button
           type="button"
           className="voice-end-btn"
-          onClick={() => { intentionalEnd.current = true; onEnd(); }}
+          onClick={() => void handleEnd()}
           aria-label="End conversation"
         >
           End
@@ -142,12 +357,29 @@ function VoicePanel({ onEnd, intentionalEnd }: {
   );
 }
 
+function mediaDeviceFailureMessage(failure: MediaDeviceFailure | undefined): string {
+  switch (failure) {
+    case MediaDeviceFailure.PermissionDenied:
+      return `Microphone permission denied. ${microphoneBlockedHint()}`;
+    case MediaDeviceFailure.NotFound:
+      return 'No microphone found. Connect a microphone and try again.';
+    case MediaDeviceFailure.DeviceInUse:
+      return 'Microphone is in use by another app. Close other apps using the mic and try again.';
+    default:
+      return `Could not access microphone. ${microphoneBlockedHint()}`;
+  }
+}
+
 export function VoiceScreen() {
-  const { voiceSession, endVoice } = useApp();
+  const { voiceSession, voiceMicStream, endVoice, setScreen } = useApp();
   const intentionalEnd = useRef(false);
   const [connectError, setConnectError] = useState<string | null>(null);
 
-  if (!voiceSession) return null;
+  useEffect(() => {
+    if (!voiceSession) setScreen('home');
+  }, [voiceSession, setScreen]);
+
+  if (!voiceSession || !voiceMicStream) return null;
 
   const langLabel = LANGUAGES.find((l) => l.value === voiceSession.language)?.native;
 
@@ -164,7 +396,7 @@ export function VoiceScreen() {
         serverUrl={voiceSession.livekitUrl}
         token={voiceSession.token}
         connect
-        audio
+        audio={false}
         video={false}
         onDisconnected={() => {
           if (!intentionalEnd.current) {
@@ -174,10 +406,13 @@ export function VoiceScreen() {
           }
         }}
         onError={(err) => setConnectError(err.message)}
+        onMediaDeviceFailure={(failure) => setConnectError(mediaDeviceFailureMessage(failure))}
       >
         <VoicePanel
+          micStream={voiceMicStream}
           onEnd={() => endVoice()}
           intentionalEnd={intentionalEnd}
+          agentDispatched={voiceSession.agentDispatched}
         />
         <RoomAudioRenderer />
       </LiveKitRoom>

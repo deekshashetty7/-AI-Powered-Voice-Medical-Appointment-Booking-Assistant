@@ -7,9 +7,17 @@ import { createSTT, createTTS } from './providers.js';
 
 type SttProvider = 'deepgram' | 'sarvam' | 'elevenlabs';
 
+type RoomMetadata = {
+  language?: string;
+  sttProvider?: SttProvider;
+  patientName?: string;
+  patientPhone?: string;
+  intent?: string;
+};
+
 export default defineAgent({
   entry: async (ctx) => {
-    let metadata: { language?: string; sttProvider?: SttProvider } = {};
+    let metadata: RoomMetadata = {};
     try {
       metadata = JSON.parse(ctx.room.metadata || '{}');
     } catch {
@@ -18,6 +26,11 @@ export default defineAgent({
 
     const language = metadata.language || 'en';
     const sttProvider = metadata.sttProvider || 'deepgram';
+    const intent = metadata.intent?.trim() || '';
+    const patientPhone = metadata.patientPhone?.trim() || '';
+
+    await ctx.connect();
+    await ctx.waitForParticipant();
 
     const session = new voice.AgentSession({
       vad: new inference.VAD(),
@@ -40,12 +53,22 @@ export default defineAgent({
       },
     });
 
-    await ctx.connect();
-
     const greeting = GREETINGS[language] || GREETINGS.en;
-    session.generateReply({
-      instructions: `Greet the patient warmly. Say: ${greeting}`,
-    });
+
+    if (intent) {
+      session.generateReply({
+        instructions: [
+          `Greet the patient warmly. Say: ${greeting}`,
+          `The patient already stated their request: "${intent}".`,
+          patientPhone ? `Their phone number on file is ${patientPhone}.` : '',
+          'Acknowledge their request and help them right away. Ask only what you still need.',
+        ]
+          .filter(Boolean)
+          .join(' '),
+      });
+    } else {
+      session.say(greeting);
+    }
   },
 });
 

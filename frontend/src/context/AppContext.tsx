@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
 import type { Language, SttProvider, SessionConfig, TokenResponse } from '../types';
 import { getLiveKitToken } from '../types';
+import { parseMicrophoneError, requestMicrophoneStream, stopMicrophoneStream } from '../lib/microphone';
 import type { AuthUser } from '../api/auth';
 import {
   fetchCurrentUser,
@@ -40,10 +41,12 @@ interface AppState {
   patientPhone: string;
   allowLanguageSwitch: boolean;
   voiceSession: TokenResponse | null;
+  voiceMicStream: MediaStream | null;
   voiceLoading: boolean;
   voiceError: string | null;
   booking: BookingDetails | null;
   voiceIntent: string | null;
+  voiceEndMessage: string | null;
   user: AuthUser | null;
   authToken: string | null;
   authLoading: boolean;
@@ -73,10 +76,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     patientPhone: '',
     allowLanguageSwitch: false,
     voiceSession: null,
+    voiceMicStream: null,
     voiceLoading: false,
     voiceError: null,
     booking: null,
     voiceIntent: null,
+    voiceEndMessage: null,
     user: null,
     authToken: null,
     authLoading: true,
@@ -122,50 +127,102 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     clearToken();
-    setState((s) => ({
-      ...s,
-      user: null,
-      authToken: null,
-      voiceSession: null,
-      screen: 'login',
-    }));
+    setState((s) => {
+      stopMicrophoneStream(s.voiceMicStream);
+      return {
+        ...s,
+        user: null,
+        authToken: null,
+        voiceSession: null,
+        voiceMicStream: null,
+        screen: 'login',
+      };
+    });
   }, []);
 
   const startVoice = useCallback(async (intent?: string) => {
-    setState((s) => ({ ...s, voiceLoading: true, voiceError: null, voiceIntent: intent ?? null }));
+    const resolvedIntent = intent ?? state.voiceIntent ?? undefined;
+
+    let micPromise: Promise<MediaStream>;
     try {
-      const config: SessionConfig = {
-        language: state.language,
-        sttProvider: state.sttProvider,
-        patientName: state.patientName || state.user?.name || 'Patient',
-      };
-      const tokenData = await getLiveKitToken(config);
+      micPromise = requestMicrophoneStream();
+    } catch (err) {
+      setState((s) => ({
+        ...s,
+        voiceError: parseMicrophoneError(err),
+      }));
+      return;
+    }
+
+    setState((s) => ({
+      ...s,
+      voiceLoading: true,
+      voiceError: null,
+      voiceEndMessage: null,
+      voiceIntent: resolvedIntent ?? null,
+    }));
+
+    const config: SessionConfig = {
+      language: state.language,
+      sttProvider: state.sttProvider,
+      patientName: state.patientName || state.user?.name || 'Patient',
+      patientPhone: state.patientPhone || state.user?.phone || undefined,
+      intent: resolvedIntent,
+    };
+
+    try {
+      const [micStream, tokenData] = await Promise.all([
+        micPromise,
+        getLiveKitToken(config),
+      ]);
+
       setState((s) => ({
         ...s,
         voiceSession: tokenData,
+        voiceMicStream: micStream,
         voiceLoading: false,
         screen: 'voice',
       }));
     } catch (err) {
+      micPromise.then(stopMicrophoneStream).catch(() => undefined);
       setState((s) => ({
         ...s,
         voiceLoading: false,
-        voiceError: err instanceof Error ? err.message : 'Failed to start voice session',
+        voiceError: parseMicrophoneError(err),
       }));
     }
-  }, [state.language, state.sttProvider, state.patientName, state.user?.name]);
+  }, [
+    state.language,
+    state.sttProvider,
+    state.patientName,
+    state.patientPhone,
+    state.user?.name,
+    state.user?.phone,
+    state.voiceIntent,
+  ]);
 
   const endVoice = useCallback((error?: string) => {
-    setState((s) => ({
-      ...s,
-      voiceSession: null,
-      voiceError: error ?? null,
-      screen: 'home',
-    }));
+    setState((s) => {
+      stopMicrophoneStream(s.voiceMicStream);
+      return {
+        ...s,
+        voiceSession: null,
+        voiceMicStream: null,
+        voiceIntent: null,
+        voiceError: error ?? null,
+        voiceEndMessage: error
+          ? null
+          : 'Voice session ended. Tap the microphone to speak with the assistant again.',
+        screen: 'home',
+      };
+    });
   }, []);
 
   const goHome = useCallback(() => {
-    setState((s) => ({ ...s, screen: 'home', voiceSession: null }));
+    setState((s) => {
+      stopMicrophoneStream(s.voiceMicStream);
+      return { ...s, screen: 'home', voiceSession: null, voiceMicStream: null };
+    });
   }, []);
 
   const value: AppContextValue = {
